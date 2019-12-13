@@ -1,0 +1,13 @@
+[package]
+name = "async-thread"
+version = "0.1.0"
+authors = ["leo60228 <iakornfeld@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures-channel = "0.3.1"
+
+[dev-dependencies]
+async-std = { version = "1.3.0", features = ["attributes"] }
