@@ -1,3 +1,10 @@
+//! This crate provides an API identical to `std::thread`. However, `JoinHandle::join` is an `async
+//! fn`.
+//! ```
+//! let handle = crate::spawn(|| 5usize);
+//! assert_eq!(handle.join().await.map_err(drop), Ok(5));
+//! ```
+
 use futures_channel::oneshot;
 use std::any::Any;
 use std::io;
