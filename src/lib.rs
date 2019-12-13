@@ -11,6 +11,60 @@ use std::io;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::thread as sync;
 
+/// An owned permission to join on a thread (block on its termination).
+///
+/// A `JoinHandle` *detaches* the associated thread when it is dropped, which
+/// means that there is no longer any handle to thread and no way to `join`
+/// on it.
+///
+/// Due to platform restrictions, it is not possible to `Clone` this
+/// handle: the ability to join a thread is a uniquely-owned permission.
+///
+/// This `struct` is created by the `thread::spawn` function and the
+/// `thread::Builder::spawn` method.
+///
+/// # Examples
+///
+/// Creation from `thread::spawn`:
+///
+/// ```
+/// let join_handle: async_thread::JoinHandle<_> = async_thread::spawn(|| {
+///     // some work here
+/// });
+/// ```
+///
+/// Creation from `thread::Builder::spawn`:
+///
+/// ```
+/// let builder = async_thread::Builder::new();
+///
+/// let join_handle: async_thread::JoinHandle<_> = builder.spawn(|| {
+///     // some work here
+/// }).unwrap();
+/// ```
+///
+/// Child being detached and outliving its parent:
+///
+/// ```no_run
+/// use std::time::Duration;
+///
+/// let original_thread = async_thread::spawn(|| {
+///     let _detached_thread = async_thread::spawn(|| {
+///         // Here we sleep to make sure that the first thread returns before.
+///         thread::sleep(Duration::from_millis(10));
+///         // This will be called, even though the JoinHandle is dropped.
+///         println!("♫ Still alive ♫");
+///     });
+/// });
+///
+/// original_thread.join().await.expect("The thread being joined has panicked");
+/// println!("Original thread is joined.");
+///
+/// // We make sure that the new thread has time to run, before the main
+/// // thread returns.
+///
+/// thread::sleep(Duration::from_millis(1000));
+/// ```
 #[derive(Debug)]
 pub struct JoinHandle<T> {
     imp: sync::JoinHandle<()>,
@@ -18,13 +72,54 @@ pub struct JoinHandle<T> {
 }
 
 impl<T> JoinHandle<T> {
+    /// Waits for the associated thread to finish.
+    ///
+    /// In terms of atomic memory orderings,  the completion of the associated
+    /// thread synchronizes with this function returning. In other words, all
+    /// operations performed by that thread are ordered before all
+    /// operations that happen after `join` returns.
+    ///
+    /// If the child thread panics, `Err` is returned with the parameter given
+    /// to `panic`.
+    ///
+    /// # Panics
+    ///
+    /// This function may panic on some platforms if a thread attempts to join
+    /// itself or otherwise may create a deadlock with joining threads.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let builder = async_thread::Builder::new();
+    ///
+    /// let join_handle: async_thread::JoinHandle<_> = builder.spawn(|| {
+    ///     // some work here
+    /// }).unwrap();
+    /// join_handle.join().await.expect("Couldn't join on the associated thread");
+    /// ```
     pub async fn join(self) -> sync::Result<T> {
-        self.chan
+        let ret = self.chan
             .await
             .map_err(|x| -> Box<dyn Any + Send + 'static> { Box::new(x) })
-            .and_then(|x| x)
+            .and_then(|x| x);
+        let _ = self.imp.join(); // synchronize threads
+        ret
     }
 
+    /// Extracts a handle to the underlying thread.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let builder = async_thread::Builder::new();
+    ///
+    /// let join_handle: async_thread::JoinHandle<_> = builder.spawn(|| {
+    ///     // some work here
+    /// }).unwrap();
+    ///
+    /// let thread = join_handle.thread();
+    /// println!("thread id: {:?}", thread.id());
+    /// ```
     pub fn thread(&self) -> &sync::Thread {
         self.imp.thread()
     }
